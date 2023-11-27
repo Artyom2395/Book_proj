@@ -1,0 +1,59 @@
+version: '3'
+services:
+  redis:
+    image: redis
+    ports:
+      - "6379:6379"
+  mysql:
+    image: mysql:latest
+    environment:
+      MYSQL_ROOT_PASSWORD: my-secret-pw
+      MYSQL_DATABASE: mydatabase
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+  django:
+    build: .
+    command: >
+      sh -c "
+        while ! mysqladmin ping -h 'mysql' --silent; do
+          echo 'Waiting for mysql to become available...';
+          sleep 1;
+        done;
+        echo 'MySQL is up and available' &&
+        python manage.py migrate &&
+        python manage.py runserver 0.0.0.0:8000
+      "
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379
+      - CELERY_RESULT_BACKEND=django-db
+      - CELERY_CACHE_BACKEND=django-cache
+      - DATABASE_HOST=mysql
+      - DATABASE_NAME=mydatabase
+      - DATABASE_USER=myuser
+      - DATABASE_PASSWORD=mypassword
+      - DATABASE_PORT=3306
+      - DATABASE_ENGINE=mysql
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+      - mysql
+  celery:
+    build: .
+    command: celery -A library_project worker -l INFO --pool=solo
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379
+      - CELERY_RESULT_BACKEND=django-db
+      - CELERY_CACHE_BACKEND=django-cache
+    depends_on:
+      - django
+      - redis
+    volumes:
+      - .:/app
+
+volumes:
+  mysql_data:
